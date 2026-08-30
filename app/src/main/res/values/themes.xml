@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.ImageToContact" parent="Theme.MaterialComponents.DayNight.NoActionBar" />
+    <style name="Theme.ImageToContact.Dialog" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowIsFloating">true</item>
+    </style>
+</resources>
