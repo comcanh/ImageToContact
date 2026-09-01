@@ -64,6 +64,21 @@ class ShareReceiverActivity : AppCompatActivity() {
 
     private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
         
+        // 3. Mở màn hình tạo liên hệ của hệ thống
+        val contactIntent = Intent(Intent.ACTION_INSERT).apply {
+            type = ContactsContract.Contacts.CONTENT_TYPE
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+            putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
+            if (foundPhone.isNotEmpty()) {
+                putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
+                putExtra(ContactsContract.Intents.Insert.PHONE_TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+            }
+            if (fullText.isNotEmpty()) {
+                putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
+            }
+        }
+
         // Gắn ảnh avatar với độ nét tối đa an toàn dưới 1MB
         val bitmap = getBitmapFromUri(uri)
         if (bitmap != null) {
@@ -75,7 +90,7 @@ class ShareReceiverActivity : AppCompatActivity() {
                 var stream = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
                 
-                // Nếu kích thước vượt 750KB thì tự giảm nhẹ chất lượng để không chạm mốc 1MB của Android
+                // Giới hạn dưới 750KB để an toàn không bị lỗi Intent
                 while (stream.size() > 750 * 1024 && quality > 40) {
                     stream = ByteArrayOutputStream()
                     quality -= 10
@@ -85,8 +100,15 @@ class ShareReceiverActivity : AppCompatActivity() {
                 put(ContactsContract.CommonDataKinds.Photo.PHOTO, stream.toByteArray())
             }
             data.add(row)
-            // Gọi rõ ràng qua this@apply (Intent) để không bị lỗi cú pháp
-            this@apply.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
+            contactIntent.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
+        }
+
+        try {
+            startActivity(contactIntent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Không thể mở Danh bạ: ${e.message}", Toast.LENGTH_SHORT).show()
+        } finally {
+            finish()
         }
 
         val lines = fullText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
