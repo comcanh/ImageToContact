@@ -18,18 +18,19 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    # Khóa cố định phiên bản Gradle 8.7
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: '8.7'
 
-    # Tạo khóa với các tham số cố định và lưu cache hoặc tạo sẵn
+    # Tạo khóa ký cố định vào thư mục hệ thống để mọi lần build đều dùng chung 1 chữ ký
     - name: Generate Fixed Keystore
       run: |
-        if [ ! -f app/debug.keystore ]; then
-          keytool -genkeypair -alias androiddebugkey -keypass android -keystore app/debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
-        fi
-        
+        mkdir -p ~/.android
+        keytool -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048 -noprompt
+        cp ~/.android/debug.keystore app/debug.keystore
+                   
     # Dùng trực tiếp lệnh gradle của hệ thống thay vì gọi ./gradlew
     - name: Build with Gradle
       run: gradle assembleDebug
