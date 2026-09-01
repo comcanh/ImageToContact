@@ -55,19 +55,17 @@ class ShareReceiverActivity : AppCompatActivity() {
                     extractAndLaunchSystemContact(visionText.text, uri)
                 }
                 .addOnFailureListener {
-                    // Dù quét lỗi vẫn tiếp tục mở màn hình Contact với chuỗi rỗng
                     extractAndLaunchSystemContact("", uri)
                 }
         } catch (e: Exception) {
-            // Trường hợp lỗi ngoại lệ vẫn mở Contact với ảnh gốc
             extractAndLaunchSystemContact("", uri)
         }
     }
 
-private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
+    private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
         val lines = fullText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
 
-        // 1. Tìm số điện thoại bằng Regex
+        // 1. Trích xuất số điện thoại
         val phonePattern = Pattern.compile("(?i)(?:0|\\+84)[\\s.-]?[0-9]{2,4}[\\s.-]?[0-9]{3}[\\s.-]?[0-9]{3,4}")
         val matcher = phonePattern.matcher(fullText)
         var foundPhone = ""
@@ -75,7 +73,7 @@ private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
             foundPhone = matcher.group().replace(Regex("[^0-9+]"), "")
         }
 
-        // 2. Tìm tên hoặc gán tên mặc định
+        // 2. Trích xuất tên (hoặc gán tên mặc định nếu không có chữ)
         var candidateName = ""
         for (line in lines) {
             val clean = line.replace(Regex("[^\\p{L}\\s]"), "").trim()
@@ -88,10 +86,10 @@ private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
             candidateName = if (lines.isNotEmpty()) lines[0] else "Vị trí / Liên hệ mới"
         }
 
-        // 3. Mở giao diện Danh bạ hệ thống và truyền thẳng File URI gốc (Giữ nguyên 100% độ nét)
+        // 3. Mở màn hình tạo liên hệ của hệ thống
         val intent = Intent(Intent.ACTION_INSERT).apply {
             type = ContactsContract.Contacts.CONTENT_TYPE
-            
+
             putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
             if (foundPhone.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
@@ -101,18 +99,43 @@ private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
                 putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
             }
 
-            // Gán trực tiếp URI ảnh gốc độ phân giải cao + cấp quyền đọc cho app Danh bạ
-            putExtra(ContactsContract.CommonDataKinds.Photo.PHOTO_URI, uri)
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Gắn ảnh gốc nguyên bản vào Intent
+            val bitmap = getBitmapFromUri(uri)
+            if (bitmap != null) {
+                val data = ArrayList<ContentValues>()
+                val row = ContentValues().apply {
+                    put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                    val stream = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                    put(ContactsContract.CommonDataKinds.Photo.PHOTO, stream.toByteArray())
+                }
+                data.add(row)
+                putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
+            }
         }
 
         try {
             startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(this, "Không thể mở ứng dụng Danh bạ: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Không thể mở Danh bạ: ${e.message}", Toast.LENGTH_SHORT).show()
         } finally {
             finish()
+        }
+    }
+
+    private fun getBitmapFromUri(uri: Uri): Bitmap? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val source = ImageDecoder.createSource(contentResolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                    decoder.isMutableRequired = true
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                MediaStore.Images.Media.getBitmap(contentResolver, uri)
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 }
