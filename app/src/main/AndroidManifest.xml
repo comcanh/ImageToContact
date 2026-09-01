@@ -9,7 +9,9 @@
         android:allowBackup="true"
         android:label="Lưu Contact từ Ảnh"
         android:theme="@style/Theme.ImageToContact">
-
+        <meta-data
+                    android:name="com.google.mlkit.vision.DEPENDENCIES"
+                    android:value="ocr" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
