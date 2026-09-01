@@ -6,6 +6,11 @@ plugins {
 android {
     namespace 'com.example.imagetocontact'
     compileSdk 34
+    
+    // Thêm 3 dòng này vào bên trong khối android:
+    buildFeatures {
+        viewBinding true
+    }
 
     defaultConfig {
         applicationId "com.example.imagetocontact"
