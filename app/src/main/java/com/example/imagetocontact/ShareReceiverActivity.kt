@@ -86,9 +86,8 @@ class ShareReceiverActivity : AppCompatActivity() {
             candidateName = if (lines.isNotEmpty()) lines[0] else "Vị trí / Liên hệ mới"
         }
 
-        // 3. Khởi tạo Intent mở thẳng trang tạo liên hệ
-        val contactIntent = Intent(Intent.ACTION_INSERT).apply {
-            type = ContactsContract.Contacts.CONTENT_TYPE
+        // 3. Khởi tạo Intent mở ĐÚNG màn hình thêm liên hệ bằng URI đích chuẩn
+        val contactIntent = Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI).apply {
             putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
             if (foundPhone.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
@@ -97,7 +96,7 @@ class ShareReceiverActivity : AppCompatActivity() {
             if (fullText.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
             }
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
         // 4. Đóng gói Avatar
@@ -126,13 +125,13 @@ class ShareReceiverActivity : AppCompatActivity() {
 
     private fun compressBitmapToBytes(bitmap: Bitmap): ByteArray? {
         val stream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
         return stream.toByteArray()
     }
 
     private fun getBitmapFromUri(uri: Uri): Bitmap? {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val original = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(contentResolver, uri)
                 ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
                     decoder.isMutableRequired = true
@@ -140,6 +139,19 @@ class ShareReceiverActivity : AppCompatActivity() {
             } else {
                 @Suppress("DEPRECATION")
                 MediaStore.Images.Media.getBitmap(contentResolver, uri)
+            }
+
+            // Thu nhỏ về 1024px để avatar vừa nét vừa không làm crash Intent
+            val maxDimension = 1024
+            val width = original.width
+            val height = original.height
+            if (width > maxDimension || height > maxDimension) {
+                val ratio = Math.min(maxDimension.toFloat() / width, maxDimension.toFloat() / height)
+                val targetWidth = (width * ratio).toInt()
+                val targetHeight = (height * ratio).toInt()
+                Bitmap.createScaledBitmap(original, targetWidth, targetHeight, true)
+            } else {
+                original
             }
         } catch (e: Exception) {
             null
