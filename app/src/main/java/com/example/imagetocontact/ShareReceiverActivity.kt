@@ -63,54 +63,6 @@ class ShareReceiverActivity : AppCompatActivity() {
     }
 
     private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
-        
-        // 3. Mở màn hình tạo liên hệ của hệ thống
-        val contactIntent = Intent(Intent.ACTION_INSERT).apply {
-            type = ContactsContract.Contacts.CONTENT_TYPE
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-            putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
-            if (foundPhone.isNotEmpty()) {
-                putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
-                putExtra(ContactsContract.Intents.Insert.PHONE_TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
-            }
-            if (fullText.isNotEmpty()) {
-                putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
-            }
-        }
-
-        // Gắn ảnh avatar với độ nét tối đa an toàn dưới 1MB
-        val bitmap = getBitmapFromUri(uri)
-        if (bitmap != null) {
-            val data = ArrayList<ContentValues>()
-            val row = ContentValues().apply {
-                put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
-                
-                var quality = 90
-                var stream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
-                
-                // Giới hạn dưới 750KB để an toàn không bị lỗi Intent
-                while (stream.size() > 750 * 1024 && quality > 40) {
-                    stream = ByteArrayOutputStream()
-                    quality -= 10
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
-                }
-
-                put(ContactsContract.CommonDataKinds.Photo.PHOTO, stream.toByteArray())
-            }
-            data.add(row)
-            contactIntent.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
-        }
-
-        try {
-            startActivity(contactIntent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Không thể mở Danh bạ: ${e.message}", Toast.LENGTH_SHORT).show()
-        } finally {
-            finish()
-        }
-
         val lines = fullText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
 
         // 1. Trích xuất số điện thoại
@@ -135,7 +87,7 @@ class ShareReceiverActivity : AppCompatActivity() {
         }
 
         // 3. Mở màn hình tạo liên hệ của hệ thống
-        val intent = Intent(Intent.ACTION_INSERT).apply {
+        val contactIntent = Intent(Intent.ACTION_INSERT).apply {
             type = ContactsContract.Contacts.CONTENT_TYPE
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
@@ -147,24 +99,25 @@ class ShareReceiverActivity : AppCompatActivity() {
             if (fullText.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
             }
+        }
 
-            // Gắn ảnh avatar vào Danh bạ
-            val bitmap = getBitmapFromUri(uri)
-            if (bitmap != null) {
+        // 4. Gắn ảnh avatar với kích thước nén tối đa sát 1MB
+        val bitmap = getBitmapFromUri(uri)
+        if (bitmap != null) {
+            val photoBytes = compressBitmapUnderLimit(bitmap, 750 * 1024)
+            if (photoBytes != null) {
                 val data = ArrayList<ContentValues>()
                 val row = ContentValues().apply {
                     put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
-                    val stream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-                    put(ContactsContract.CommonDataKinds.Photo.PHOTO, stream.toByteArray())
+                    put(ContactsContract.CommonDataKinds.Photo.PHOTO, photoBytes)
                 }
                 data.add(row)
-                putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
+                contactIntent.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
             }
         }
 
         try {
-            startActivity(intent)
+            startActivity(contactIntent)
         } catch (e: Exception) {
             Toast.makeText(this, "Không thể mở Danh bạ: ${e.message}", Toast.LENGTH_SHORT).show()
         } finally {
@@ -172,17 +125,40 @@ class ShareReceiverActivity : AppCompatActivity() {
         }
     }
 
+    // Nén ảnh bằng Binary Search: Đảm bảo dung lượng lớn nhất có thể dưới 750KB
+    private fun compressBitmapUnderLimit(bitmap: Bitmap, maxBytes: Int): ByteArray? {
+        var low = 10
+        var high = 95
+        var bestResult: ByteArray? = null
+
+        // Chạy tối đa 5 bước nhị phân, cực nhanh và không bao giờ bị treo
+        for (i in 0..4) {
+            val mid = (low + high) / 2
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, mid, stream)
+            val bytes = stream.toByteArray()
+
+            if (bytes.size <= maxBytes) {
+                bestResult = bytes
+                low = mid + 1 // Thử tăng chất lượng cao hơn nữa
+            } else {
+                high = mid - 1 // Vượt giới hạn thì giảm chất lượng xuống
+            }
+        }
+
+        // Nếu ở mức thấp nhất vẫn vượt quá maxBytes, tự động scale nhỏ lại 1 nửa
+        if (bestResult == null) {
+            val scaled = Bitmap.createScaledBitmap(bitmap, bitmap.width / 2, bitmap.height / 2, true)
+            val stream = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+            return stream.toByteArray()
+        }
+
+        return bestResult
+    }
+
     private fun getBitmapFromUri(uri: Uri): Bitmap? {
         return try {
-            // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            //     val source = ImageDecoder.createSource(contentResolver, uri)
-            //     ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-            //         decoder.isMutableRequired = true
-            //     }
-            // } else {
-            //     @Suppress("DEPRECATION")
-            //     MediaStore.Images.Media.getBitmap(contentResolver, uri)
-            // }
             val original = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(contentResolver, uri)
                 ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
@@ -193,8 +169,8 @@ class ShareReceiverActivity : AppCompatActivity() {
                 MediaStore.Images.Media.getBitmap(contentResolver, uri)
             }
 
-            // Giữ độ phân giải cao chuẩn 1440px
-            val maxDimension = 1440
+            // Giữ độ phân giải 2K cực nét (2048px)
+            val maxDimension = 2048
             val width = original.width
             val height = original.height
             if (width > maxDimension || height > maxDimension) {
