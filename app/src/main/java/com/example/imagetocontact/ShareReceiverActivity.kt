@@ -1,5 +1,6 @@
 package com.example.imagetocontact
 
+import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
@@ -13,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.io.ByteArrayOutputStream
 import java.util.ArrayList
 import java.util.regex.Pattern
 
@@ -43,7 +45,7 @@ class ShareReceiverActivity : AppCompatActivity() {
     }
 
     private fun processImageAndOpenContactEditor(uri: Uri) {
-        Toast.makeText(this, "Đang trích xuất thông tin...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Đang xử lý ảnh...", Toast.LENGTH_SHORT).show()
         try {
             val image = InputImage.fromFilePath(this, uri)
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -52,12 +54,12 @@ class ShareReceiverActivity : AppCompatActivity() {
                 .addOnSuccessListener { visionText ->
                     extractAndLaunchSystemContact(visionText.text, uri)
                 }
-                .addOnFailureListener { e ->
-                    Toast.makeText(this, "Không nhận diện được chữ: ${e.message}", Toast.LENGTH_SHORT).show()
+                .addOnFailureListener {
+                    // Dù quét lỗi vẫn tiếp tục mở màn hình Contact với chuỗi rỗng
                     extractAndLaunchSystemContact("", uri)
                 }
         } catch (e: Exception) {
-            e.printStackTrace()
+            // Trường hợp lỗi ngoại lệ vẫn mở Contact với ảnh gốc
             extractAndLaunchSystemContact("", uri)
         }
     }
@@ -65,7 +67,7 @@ class ShareReceiverActivity : AppCompatActivity() {
     private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
         val lines = fullText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
 
-        // Bóc tách số điện thoại
+        // 1. Tìm số điện thoại bằng Regex
         val phonePattern = Pattern.compile("(?i)(?:0|\\+84)[\\s.-]?[0-9]{2,4}[\\s.-]?[0-9]{3}[\\s.-]?[0-9]{3,4}")
         val matcher = phonePattern.matcher(fullText)
         var foundPhone = ""
@@ -73,7 +75,7 @@ class ShareReceiverActivity : AppCompatActivity() {
             foundPhone = matcher.group().replace(Regex("[^0-9+]"), "")
         }
 
-        // Bóc tách tên dịch vụ / tên người
+        // 2. Tìm tên hoặc gán tên mặc định nếu là ảnh bản đồ/ảnh không có chữ
         var candidateName = ""
         for (line in lines) {
             val clean = line.replace(Regex("[^\\p{L}\\s]"), "").trim()
@@ -82,35 +84,31 @@ class ShareReceiverActivity : AppCompatActivity() {
                 break
             }
         }
-        if (candidateName.isEmpty() && lines.isNotEmpty()) {
-            candidateName = lines[0]
+        if (candidateName.isEmpty()) {
+            candidateName = if (lines.isNotEmpty()) lines[0] else "Vị trí / Liên hệ mới"
         }
 
-        // Mở màn hình tạo Contact mặc định của điện thoại
         val intent = Intent(Intent.ACTION_INSERT).apply {
             type = ContactsContract.Contacts.CONTENT_TYPE
             
-            // Điền trước Tên và Số điện thoại
+            // Gán thông tin tên & số (nếu không có thì để trống người dùng tự nhập)
             putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
-            putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
-            putExtra(ContactsContract.Intents.Insert.PHONE_TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+            if (foundPhone.isNotEmpty()) {
+                putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
+                putExtra(ContactsContract.Intents.Insert.PHONE_TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+            }
             
-            // Gắn nội dung chữ OCR vào mục Ghi chú
             if (fullText.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
             }
 
-            // Gắn ảnh làm Avatar liên hệ
-            val bitmap = getBitmapFromUri(uri)
-            if (bitmap != null) {
-                val data = ArrayList<android.content.ContentValues>()
-                val row = android.content.ContentValues().apply {
+            // 3. Nén ảnh cực nhỏ (256px, JPEG 75%) để chống tràn bộ nhớ Intent (TransactionTooLargeException)
+            val photoBytes = getCompressedAvatarBytes(uri)
+            if (photoBytes != null) {
+                val data = ArrayList<ContentValues>()
+                val row = ContentValues().apply {
                     put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
-                    val stream = java.io.ByteArrayOutputStream()
-                    // Nén ảnh nhỏ gọn để vừa bộ nhớ Intent
-                    val scaled = Bitmap.createScaledBitmap(bitmap, 480, (480f * bitmap.height / bitmap.width).toInt(), true)
-                    scaled.compress(Bitmap.CompressFormat.PNG, 90, stream)
-                    put(ContactsContract.CommonDataKinds.Photo.PHOTO, stream.toByteArray())
+                    put(ContactsContract.CommonDataKinds.Photo.PHOTO, photoBytes)
                 }
                 data.add(row)
                 putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
@@ -120,15 +118,15 @@ class ShareReceiverActivity : AppCompatActivity() {
         try {
             startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(this, "Không thể mở ứng dụng Danh bạ", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Không thể mở ứng dụng Danh bạ: ${e.message}", Toast.LENGTH_SHORT).show()
         } finally {
             finish()
         }
     }
 
-    private fun getBitmapFromUri(uri: Uri): Bitmap? {
+    private fun getCompressedAvatarBytes(uri: Uri): ByteArray? {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(contentResolver, uri)
                 ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
                     decoder.isMutableRequired = true
@@ -137,6 +135,17 @@ class ShareReceiverActivity : AppCompatActivity() {
                 @Suppress("DEPRECATION")
                 MediaStore.Images.Media.getBitmap(contentResolver, uri)
             }
+
+            // Thu nhỏ ảnh về kích thước chuẩn Avatar 256x256 để dung lượng luôn < 50KB
+            val maxDimension = 256
+            val ratio = Math.min(maxDimension.toFloat() / bitmap.width, maxDimension.toFloat() / bitmap.height)
+            val targetWidth = (bitmap.width * ratio).toInt()
+            val targetHeight = (bitmap.height * ratio).toInt()
+
+            val scaledBitmap = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+            val stream = ByteArrayOutputStream()
+            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+            stream.toByteArray()
         } catch (e: Exception) {
             null
         }
