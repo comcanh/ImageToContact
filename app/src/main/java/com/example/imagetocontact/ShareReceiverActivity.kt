@@ -73,7 +73,7 @@ class ShareReceiverActivity : AppCompatActivity() {
             foundPhone = matcher.group().replace(Regex("[^0-9+]"), "")
         }
 
-        // 2. Trích xuất tên (hoặc gán tên mặc định nếu không có chữ)
+        // 2. Trích xuất tên (hoặc gán tên mặc định)
         var candidateName = ""
         for (line in lines) {
             val clean = line.replace(Regex("[^\\p{L}\\s]"), "").trim()
@@ -89,6 +89,7 @@ class ShareReceiverActivity : AppCompatActivity() {
         // 3. Mở màn hình tạo liên hệ của hệ thống
         val intent = Intent(Intent.ACTION_INSERT).apply {
             type = ContactsContract.Contacts.CONTENT_TYPE
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
             putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
             if (foundPhone.isNotEmpty()) {
@@ -99,14 +100,14 @@ class ShareReceiverActivity : AppCompatActivity() {
                 putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
             }
 
-            // Gắn ảnh gốc nguyên bản vào Intent
+            // Gắn ảnh avatar vào Danh bạ
             val bitmap = getBitmapFromUri(uri)
             if (bitmap != null) {
                 val data = ArrayList<ContentValues>()
                 val row = ContentValues().apply {
                     put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
                     val stream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
                     put(ContactsContract.CommonDataKinds.Photo.PHOTO, stream.toByteArray())
                 }
                 data.add(row)
