@@ -73,7 +73,7 @@ class ShareReceiverActivity : AppCompatActivity() {
             foundPhone = matcher.group().replace(Regex("[^0-9+]"), "")
         }
 
-        // 2. Trích xuất tên (hoặc gán tên mặc định)
+        // 2. Trích xuất tên
         var candidateName = ""
         for (line in lines) {
             val clean = line.replace(Regex("[^\\p{L}\\s]"), "").trim()
@@ -86,8 +86,9 @@ class ShareReceiverActivity : AppCompatActivity() {
             candidateName = if (lines.isNotEmpty()) lines[0] else "Vị trí / Liên hệ mới"
         }
 
-        // 3. Khởi tạo Intent mở thẳng màn hình tạo liên hệ mới
-        val contactIntent = Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI).apply {
+        // 3. Khởi tạo Intent mở thẳng trang tạo liên hệ
+        val contactIntent = Intent(Intent.ACTION_INSERT).apply {
+            type = ContactsContract.Contacts.CONTENT_TYPE
             putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
             if (foundPhone.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
@@ -99,10 +100,10 @@ class ShareReceiverActivity : AppCompatActivity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
-        // 4. Đóng gói Avatar vào Intent
+        // 4. Đóng gói Avatar
         val bitmap = getBitmapFromUri(uri)
         if (bitmap != null) {
-            val photoBytes = compressBitmapUnderLimit(bitmap, 750 * 1024)
+            val photoBytes = compressBitmapToBytes(bitmap)
             if (photoBytes != null) {
                 val data = ArrayList<ContentValues>()
                 val photoRow = ContentValues().apply {
@@ -123,38 +124,15 @@ class ShareReceiverActivity : AppCompatActivity() {
         }
     }
 
-    private fun compressBitmapUnderLimit(bitmap: Bitmap, maxBytes: Int): ByteArray? {
-        var low = 10
-        var high = 95
-        var bestResult: ByteArray? = null
-
-        for (i in 0..4) {
-            val mid = (low + high) / 2
-            val stream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, mid, stream)
-            val bytes = stream.toByteArray()
-
-            if (bytes.size <= maxBytes) {
-                bestResult = bytes
-                low = mid + 1
-            } else {
-                high = mid - 1
-            }
-        }
-
-        if (bestResult == null) {
-            val scaled = Bitmap.createScaledBitmap(bitmap, bitmap.width / 2, bitmap.height / 2, true)
-            val stream = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-            return stream.toByteArray()
-        }
-
-        return bestResult
+    private fun compressBitmapToBytes(bitmap: Bitmap): ByteArray? {
+        val stream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+        return stream.toByteArray()
     }
 
     private fun getBitmapFromUri(uri: Uri): Bitmap? {
         return try {
-            val original = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(contentResolver, uri)
                 ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
                     decoder.isMutableRequired = true
@@ -162,18 +140,6 @@ class ShareReceiverActivity : AppCompatActivity() {
             } else {
                 @Suppress("DEPRECATION")
                 MediaStore.Images.Media.getBitmap(contentResolver, uri)
-            }
-
-            val maxDimension = 2048
-            val width = original.width
-            val height = original.height
-            if (width > maxDimension || height > maxDimension) {
-                val ratio = Math.min(maxDimension.toFloat() / width, maxDimension.toFloat() / height)
-                val targetWidth = (width * ratio).toInt()
-                val targetHeight = (height * ratio).toInt()
-                Bitmap.createScaledBitmap(original, targetWidth, targetHeight, true)
-            } else {
-                original
             }
         } catch (e: Exception) {
             null
