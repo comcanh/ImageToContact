@@ -23,18 +23,11 @@ jobs:
       with:
         gradle-version: '8.7'
 
-    - name: Generate Fixed Keystore
-      run: |
-        mkdir -p ~/.android
-        keytool -genkeypair -alias androiddebugkey -keypass android -keystore app/debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048 -noprompt
-
     - name: Build with Gradle
       run: gradle assembleDebug
 
-    - name: Upload APK & Keystore
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: App-Output
-        path: |
-          app/build/outputs/apk/debug/*.apk
-          app/debug.keystore
+        name: ImageToContact-Debug-APK
+        path: app/build/outputs/apk/debug/*.apk
