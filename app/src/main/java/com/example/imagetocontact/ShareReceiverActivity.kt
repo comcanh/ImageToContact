@@ -86,11 +86,8 @@ class ShareReceiverActivity : AppCompatActivity() {
             candidateName = if (lines.isNotEmpty()) lines[0] else "Vị trí / Liên hệ mới"
         }
 
-        // 3. Mở màn hình tạo liên hệ của hệ thống
-        val contactIntent = Intent(Intent.ACTION_INSERT).apply {
-            type = ContactsContract.Contacts.CONTENT_TYPE
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
+        // 3. Khởi tạo Intent mở thẳng màn hình tạo liên hệ mới
+        val contactIntent = Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI).apply {
             putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
             if (foundPhone.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
@@ -99,19 +96,20 @@ class ShareReceiverActivity : AppCompatActivity() {
             if (fullText.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
             }
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
-        // 4. Gắn ảnh avatar với kích thước nén tối đa sát 1MB
+        // 4. Đóng gói Avatar vào Intent
         val bitmap = getBitmapFromUri(uri)
         if (bitmap != null) {
             val photoBytes = compressBitmapUnderLimit(bitmap, 750 * 1024)
             if (photoBytes != null) {
                 val data = ArrayList<ContentValues>()
-                val row = ContentValues().apply {
+                val photoRow = ContentValues().apply {
                     put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
                     put(ContactsContract.CommonDataKinds.Photo.PHOTO, photoBytes)
                 }
-                data.add(row)
+                data.add(photoRow)
                 contactIntent.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
             }
         }
@@ -125,13 +123,11 @@ class ShareReceiverActivity : AppCompatActivity() {
         }
     }
 
-    // Nén ảnh bằng Binary Search: Đảm bảo dung lượng lớn nhất có thể dưới 750KB
     private fun compressBitmapUnderLimit(bitmap: Bitmap, maxBytes: Int): ByteArray? {
         var low = 10
         var high = 95
         var bestResult: ByteArray? = null
 
-        // Chạy tối đa 5 bước nhị phân, cực nhanh và không bao giờ bị treo
         for (i in 0..4) {
             val mid = (low + high) / 2
             val stream = ByteArrayOutputStream()
@@ -140,13 +136,12 @@ class ShareReceiverActivity : AppCompatActivity() {
 
             if (bytes.size <= maxBytes) {
                 bestResult = bytes
-                low = mid + 1 // Thử tăng chất lượng cao hơn nữa
+                low = mid + 1
             } else {
-                high = mid - 1 // Vượt giới hạn thì giảm chất lượng xuống
+                high = mid - 1
             }
         }
 
-        // Nếu ở mức thấp nhất vẫn vượt quá maxBytes, tự động scale nhỏ lại 1 nửa
         if (bestResult == null) {
             val scaled = Bitmap.createScaledBitmap(bitmap, bitmap.width / 2, bitmap.height / 2, true)
             val stream = ByteArrayOutputStream()
@@ -169,7 +164,6 @@ class ShareReceiverActivity : AppCompatActivity() {
                 MediaStore.Images.Media.getBitmap(contentResolver, uri)
             }
 
-            // Giữ độ phân giải 2K cực nét (2048px)
             val maxDimension = 2048
             val width = original.width
             val height = original.height
