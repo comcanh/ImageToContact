@@ -85,7 +85,8 @@ class ShareReceiverActivity : AppCompatActivity() {
                 put(ContactsContract.CommonDataKinds.Photo.PHOTO, stream.toByteArray())
             }
             data.add(row)
-            putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
+            // Gọi rõ ràng qua this@apply (Intent) để không bị lỗi cú pháp
+            this@apply.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
         }
 
         val lines = fullText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
