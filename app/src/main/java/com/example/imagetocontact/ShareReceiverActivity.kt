@@ -64,7 +64,7 @@ class ShareReceiverActivity : AppCompatActivity() {
         }
     }
 
-    private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
+private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
         val lines = fullText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
 
         // 1. Tìm số điện thoại bằng Regex
@@ -75,7 +75,7 @@ class ShareReceiverActivity : AppCompatActivity() {
             foundPhone = matcher.group().replace(Regex("[^0-9+]"), "")
         }
 
-        // 2. Tìm tên hoặc gán tên mặc định nếu là ảnh bản đồ/ảnh không có chữ
+        // 2. Tìm tên hoặc gán tên mặc định
         var candidateName = ""
         for (line in lines) {
             val clean = line.replace(Regex("[^\\p{L}\\s]"), "").trim()
@@ -88,31 +88,23 @@ class ShareReceiverActivity : AppCompatActivity() {
             candidateName = if (lines.isNotEmpty()) lines[0] else "Vị trí / Liên hệ mới"
         }
 
+        // 3. Mở giao diện Danh bạ hệ thống và truyền thẳng File URI gốc (Giữ nguyên 100% độ nét)
         val intent = Intent(Intent.ACTION_INSERT).apply {
             type = ContactsContract.Contacts.CONTENT_TYPE
             
-            // Gán thông tin tên & số (nếu không có thì để trống người dùng tự nhập)
             putExtra(ContactsContract.Intents.Insert.NAME, candidateName)
             if (foundPhone.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.PHONE, foundPhone)
                 putExtra(ContactsContract.Intents.Insert.PHONE_TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
             }
-            
             if (fullText.isNotEmpty()) {
                 putExtra(ContactsContract.Intents.Insert.NOTES, fullText)
             }
 
-            // 3. Nén ảnh cực nhỏ (256px, JPEG 75%) để chống tràn bộ nhớ Intent (TransactionTooLargeException)
-            val photoBytes = getCompressedAvatarBytes(uri)
-            if (photoBytes != null) {
-                val data = ArrayList<ContentValues>()
-                val row = ContentValues().apply {
-                    put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
-                    put(ContactsContract.CommonDataKinds.Photo.PHOTO, photoBytes)
-                }
-                data.add(row)
-                putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
-            }
+            // Gán trực tiếp URI ảnh gốc độ phân giải cao + cấp quyền đọc cho app Danh bạ
+            putExtra(ContactsContract.CommonDataKinds.Photo.PHOTO_URI, uri)
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
         try {
@@ -121,33 +113,6 @@ class ShareReceiverActivity : AppCompatActivity() {
             Toast.makeText(this, "Không thể mở ứng dụng Danh bạ: ${e.message}", Toast.LENGTH_SHORT).show()
         } finally {
             finish()
-        }
-    }
-
-    private fun getCompressedAvatarBytes(uri: Uri): ByteArray? {
-        return try {
-            val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val source = ImageDecoder.createSource(contentResolver, uri)
-                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                    decoder.isMutableRequired = true
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                MediaStore.Images.Media.getBitmap(contentResolver, uri)
-            }
-
-            // Thu nhỏ ảnh về kích thước chuẩn Avatar 256x256 để dung lượng luôn < 50KB
-            val maxDimension = 256
-            val ratio = Math.min(maxDimension.toFloat() / bitmap.width, maxDimension.toFloat() / bitmap.height)
-            val targetWidth = (bitmap.width * ratio).toInt()
-            val targetHeight = (bitmap.height * ratio).toInt()
-
-            val scaledBitmap = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
-            val stream = ByteArrayOutputStream()
-            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
-            stream.toByteArray()
-        } catch (e: Exception) {
-            null
         }
     }
 }
