@@ -63,6 +63,31 @@ class ShareReceiverActivity : AppCompatActivity() {
     }
 
     private fun extractAndLaunchSystemContact(fullText: String, uri: Uri) {
+        
+        // Gắn ảnh avatar với độ nét tối đa an toàn dưới 1MB
+        val bitmap = getBitmapFromUri(uri)
+        if (bitmap != null) {
+            val data = ArrayList<ContentValues>()
+            val row = ContentValues().apply {
+                put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                
+                var quality = 90
+                var stream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+                
+                // Nếu kích thước vượt 750KB thì tự giảm nhẹ chất lượng để không chạm mốc 1MB của Android
+                while (stream.size() > 750 * 1024 && quality > 40) {
+                    stream = ByteArrayOutputStream()
+                    quality -= 10
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+                }
+
+                put(ContactsContract.CommonDataKinds.Photo.PHOTO, stream.toByteArray())
+            }
+            data.add(row)
+            putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, data)
+        }
+
         val lines = fullText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
 
         // 1. Trích xuất số điện thoại
@@ -126,7 +151,16 @@ class ShareReceiverActivity : AppCompatActivity() {
 
     private fun getBitmapFromUri(uri: Uri): Bitmap? {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            //     val source = ImageDecoder.createSource(contentResolver, uri)
+            //     ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+            //         decoder.isMutableRequired = true
+            //     }
+            // } else {
+            //     @Suppress("DEPRECATION")
+            //     MediaStore.Images.Media.getBitmap(contentResolver, uri)
+            // }
+            val original = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(contentResolver, uri)
                 ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
                     decoder.isMutableRequired = true
@@ -134,6 +168,19 @@ class ShareReceiverActivity : AppCompatActivity() {
             } else {
                 @Suppress("DEPRECATION")
                 MediaStore.Images.Media.getBitmap(contentResolver, uri)
+            }
+
+            // Giữ độ phân giải cao chuẩn 1440px
+            val maxDimension = 1440
+            val width = original.width
+            val height = original.height
+            if (width > maxDimension || height > maxDimension) {
+                val ratio = Math.min(maxDimension.toFloat() / width, maxDimension.toFloat() / height)
+                val targetWidth = (width * ratio).toInt()
+                val targetHeight = (height * ratio).toInt()
+                Bitmap.createScaledBitmap(original, targetWidth, targetHeight, true)
+            } else {
+                original
             }
         } catch (e: Exception) {
             null
